@@ -47,6 +47,9 @@ export const dartOptions = {
     generateCopyWith: new BooleanOption("copy-with", "Generate CopyWith method", false),
     useFreezed: new BooleanOption("use-freezed", "Generate class definitions with @freezed compatibility", false),
     useHive: new BooleanOption("use-hive", "Generate annotations for Hive type adapters", false),
+    hiveAnnotationCounter: new StringOption("hive-annotation-counter", "value of type annotation for hive classes: default zero", "", "0"),
+    useEquatable: new BooleanOption("use-equatable", "class will extend Equatable", false),
+    useNullSafety: new BooleanOption("use-null-safety", "class will use null safe conventions", false),
     partName: new StringOption("part-name", "Use this name in `part` directive", "NAME", "")
 };
 
@@ -65,6 +68,9 @@ export class DartTargetLanguage extends TargetLanguage {
             dartOptions.generateCopyWith,
             dartOptions.useFreezed,
             dartOptions.useHive,
+            dartOptions.hiveAnnotationCounter,
+            dartOptions.useEquatable,
+            dartOptions.useNullSafety,
             dartOptions.partName
         ];
     }
@@ -188,8 +194,8 @@ function dartNameStyle(startWithUpper: boolean, upperUnderscore: boolean, origin
     const firstWordStyle = upperUnderscore
         ? allUpperWordStyle
         : startWithUpper
-        ? firstUpperWordStyle
-        : allLowerWordStyle;
+            ? firstUpperWordStyle
+            : allLowerWordStyle;
     const restWordStyle = upperUnderscore ? allUpperWordStyle : firstUpperWordStyle;
     return combineWords(
         words,
@@ -211,7 +217,7 @@ type TopLevelDependents = {
 export class DartRenderer extends ConvenienceRenderer {
     private readonly _gettersAndSettersForPropertyName = new Map<Name, [Name, Name]>();
     private _needEnumValues = false;
-    private classCounter = 0;
+    private classCounter = parseInt(this._options.hiveAnnotationCounter, 10);
     private classPropertyCounter = 0;
     private readonly _topLevelDependents = new Map<Name, TopLevelDependents>();
     private readonly _enumValues = new Map<EnumType, Name>();
@@ -328,7 +334,8 @@ export class DartRenderer extends ConvenienceRenderer {
         });
 
         this.ensureBlankLine();
-        if (this._options.requiredProperties) {
+        //meta.dart not needed for null safe / Dart versions >= 2.12
+        if (this._options.requiredProperties && this._options.useNullSafety == false) {
             this.emitLine("import 'package:meta/meta.dart';");
         }
         if (this._options.useFreezed) {
@@ -336,6 +343,10 @@ export class DartRenderer extends ConvenienceRenderer {
         }
         if (this._options.useHive) {
             this.emitLine("import 'package:hive/hive.dart';");
+        }
+
+        if (this._options.useEquatable) {
+            this.emitLine("import 'package:equatable/equatable.dart';");
         }
 
         this.emitLine("import 'dart:convert';");
@@ -483,20 +494,25 @@ export class DartRenderer extends ConvenienceRenderer {
     }
 
     protected emitClassDefinition(c: ClassType, className: Name): void {
+        var requiredPrefix = "@required ";
+        if (this._options.useNullSafety == true) {
+            requiredPrefix = "required ";
+        }
+        var required = this._options.useNullSafety == true || this._options.requiredProperties == true;
         this.emitDescription(this.descriptionForType(c));
         if (this._options.useHive) {
             this.classCounter++;
             this.emitLine(`@HiveType(typeId: ${this.classCounter})`);
             this.classPropertyCounter = 0;
         }
-        this.emitBlock(["class ", className], () => {
+        this.emitBlock(["class ", className, this._options.useEquatable ? " extends Equatable" : ""], () => {
             if (c.getProperties().size === 0) {
                 this.emitLine(className, "();");
             } else {
                 this.emitLine(className, "({");
                 this.indent(() => {
                     this.forEachClassProperty(c, "none", (name, _, _p) => {
-                        this.emitLine(this._options.requiredProperties ? "@required " : "", "this.", name, ",");
+                        this.emitLine(required ? requiredPrefix : "", "this.", name, ",");
                     });
                 });
                 this.emitLine("});");
@@ -602,6 +618,12 @@ export class DartRenderer extends ConvenienceRenderer {
     }
 
     protected emitFreezedClassDefinition(c: ClassType, className: Name): void {
+        var requiredPrefix = "@required ";
+        if (this._options.useNullSafety == true) {
+            requiredPrefix = "required ";
+        }
+        var required = this._options.useNullSafety == true || this._options.requiredProperties == true;
+
         this.emitDescription(this.descriptionForType(c));
 
         this.emitLine("@freezed");
@@ -613,7 +635,7 @@ export class DartRenderer extends ConvenienceRenderer {
                 this.indent(() => {
                     this.forEachClassProperty(c, "none", (name, _, _p) => {
                         this.emitLine(
-                            this._options.requiredProperties ? "@required " : "",
+                            required ? requiredPrefix : "",
                             this.dartType(_p.type, true),
                             " ",
                             name,
