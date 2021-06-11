@@ -75,6 +75,10 @@ export class DartTargetLanguage extends TargetLanguage {
         ];
     }
 
+    get supportsOptionalClassProperties(): boolean {
+        return true;
+    }
+
     get supportsUnionsWithBothNumberTypes(): boolean {
         return true;
     }
@@ -494,11 +498,31 @@ export class DartRenderer extends ConvenienceRenderer {
     }
 
     protected emitClassDefinition(c: ClassType, className: Name): void {
-        var requiredPrefix = "@required ";
-        if (this._options.useNullSafety == true) {
-            requiredPrefix = "required ";
-        }
-        var required = this._options.useNullSafety == true || this._options.requiredProperties == true;
+
+
+        const nullSafePrefix = (p: ClassProperty) => {
+            var requiredPrefix = "@required ";
+            if (this._options.useNullSafety == true) {
+                requiredPrefix = "required ";
+                if (p.isOptional) {
+                    return "";
+                }
+                return requiredPrefix;
+            }
+            if (this._options.finalProperties == true) {
+                return requiredPrefix;
+            }
+            return "";
+        };
+
+        const nullSafeDeclaration = (p: ClassProperty) => {
+            if (p.isOptional) {
+                return "? ";
+            } else {
+                return " ";
+            }
+        };
+
         this.emitDescription(this.descriptionForType(c));
         if (this._options.useHive) {
             this.classCounter++;
@@ -512,7 +536,7 @@ export class DartRenderer extends ConvenienceRenderer {
                 this.emitLine(className, "({");
                 this.indent(() => {
                     this.forEachClassProperty(c, "none", (name, _, _p) => {
-                        this.emitLine(required ? requiredPrefix : "", "this.", name, ",");
+                        this.emitLine(nullSafePrefix(_p), "this.", name, ",");
                     });
                 });
                 this.emitLine("});");
@@ -532,7 +556,7 @@ export class DartRenderer extends ConvenienceRenderer {
                     this.emitLine(
                         this._options.finalProperties ? "final " : "",
                         this.dartType(p.type, true),
-                        " ",
+                        nullSafeDeclaration(p),
                         name,
                         ";"
                     );
@@ -544,7 +568,7 @@ export class DartRenderer extends ConvenienceRenderer {
                 this.emitLine(className, " copyWith({");
                 this.indent(() => {
                     this.forEachClassProperty(c, "none", (name, _, _p) => {
-                        this.emitLine(this.dartType(_p.type, true), " ", name, ",");
+                        this.emitLine(nullSafePrefix(_p), this.dartType(_p.type, true), nullSafeDeclaration(_p), name, ",");
                     });
                 });
                 this.emitLine("}) => ");
@@ -552,7 +576,15 @@ export class DartRenderer extends ConvenienceRenderer {
                     this.emitLine(className, "(");
                     this.indent(() => {
                         this.forEachClassProperty(c, "none", (name, _, _p) => {
-                            this.emitLine(name, ": ", name, " ?? ", "this.", name, ",");
+                            if (this._options.useNullSafety == true) {
+                                if (_p.isOptional == true) {
+                                    this.emitLine(name, ": ", name, " ?? ", "this.", name, ",");
+                                } else {
+                                    this.emitLine(name, ": ", name, ",");
+                                }
+                            } else {
+                                this.emitLine(name, ": ", name, " ?? ", "this.", name, ",");
+                            }
                         });
                     });
                     this.emitLine(");");

@@ -30,3 +30,4 @@ test/fixtures/objective-c/quicktype
 /.vs
 .idea
 .DS_Store
+.nvmrc
