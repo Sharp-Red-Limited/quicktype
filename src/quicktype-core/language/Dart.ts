@@ -581,23 +581,6 @@ export class DartRenderer extends ConvenienceRenderer {
                 });
             }
 
-            if (this._options.useEquatable && this._options.finalProperties) {
-                this.ensureBlankLine();
-                this.emitLine("@override");
-                this.emitLine("//only non nullable fields can be used for Equatable classes");
-                this.emitLine("List<Object?> get props =>");
-                this.emitLine("[");
-                this.indent(() => {
-                    this.forEachClassProperty(c, "none", (name, _, _p) => {
-                        if (_p.isOptional == false) {
-                            this.emitLine(name, ",");
-                        }
-                    });
-                });
-                this.emitLine("];");
-
-            }
-
             if (this._options.generateCopyWith) {
                 this.ensureBlankLine();
                 this.emitLine(className, " copyWith({");
@@ -681,6 +664,28 @@ export class DartRenderer extends ConvenienceRenderer {
                 });
             });
             this.emitLine("};");
+
+            if (this._options.useEquatable && this._options.finalProperties) {
+                this.ensureBlankLine();
+                this.emitLine("@override");
+                this.emitLine("//only non nullable fields can be used for Equatable classes");
+                this.emitLine("List<Object?> get props =>");
+                this.emitLine("[");
+                this.indent(() => {
+                    this.forEachClassProperty(c, "none", (name, _, _p) => {
+                        if (_p.isOptional == false) {
+                            this.emitLine(name, ",");
+                        }
+                    });
+                });
+                this.emitLine("];");
+                this.ensureBlankLine();
+                this.emitLine("@override");
+                this.emitLine("bool get stringify => true;")
+
+            }
+
+
         });
     }
 
