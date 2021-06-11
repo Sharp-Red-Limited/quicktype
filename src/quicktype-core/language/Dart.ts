@@ -37,6 +37,7 @@ import { anyTypeIssueAnnotation, nullTypeIssueAnnotation } from "../Annotation";
 import { defined } from "../support/Support";
 import { RenderContext } from "../Renderer";
 import { arrayIntercalate } from "collection-utils";
+import { throws } from "assert";
 
 export const dartOptions = {
     justTypes: new BooleanOption("just-types", "Types only", false),
@@ -413,85 +414,96 @@ export class DartRenderer extends ConvenienceRenderer {
         );
     }
 
-    protected mapList(itemType: Sourcelike, list: Sourcelike, mapper: Sourcelike): Sourcelike {
+    protected mapList(itemType: Sourcelike, nullable: boolean, list: Sourcelike, mapper: Sourcelike): Sourcelike {
+        if (nullable == true) {
+            return [list, " == null ? null : ", "List<", itemType, ">.from(", list, "?.map((x) => ", mapper, ")?? [])"];
+        }
         return ["List<", itemType, ">.from(", list, ".map((x) => ", mapper, "))"];
     }
 
-    protected mapMap(valueType: Sourcelike, map: Sourcelike, valueMapper: Sourcelike): Sourcelike {
+    protected mapMap(valueType: Sourcelike, nullable: boolean, map: Sourcelike, valueMapper: Sourcelike): Sourcelike {
+        if (nullable == true) {
+            return [map, " == null ? null : ", "Map.from(", map, ").map((k, v) => MapEntry<String, ", valueType, ">(k, ", valueMapper, "))"]
+        }
         return ["Map.from(", map, ").map((k, v) => MapEntry<String, ", valueType, ">(k, ", valueMapper, "))"];
     }
 
-    protected fromDynamicExpression(t: Type, ...dynamic: Sourcelike[]): Sourcelike {
+    protected fromDynamicExpression(t: Type, nullable: boolean, ...dynamic: Sourcelike[]): Sourcelike {
         return matchType<Sourcelike>(
             t,
-            _anyType => dynamic,
-            _nullType => dynamic, // FIXME: check null
-            _boolType => dynamic,
-            _integerType => dynamic,
-            _doubleType => [dynamic, ".toDouble()"],
-            _stringType => dynamic,
+            _anyType => nullable ? [dynamic, " == null ? null : ", dynamic] : dynamic,
+            _nullType => nullable ? [dynamic, " == null ? null : ", dynamic] : dynamic,
+            _boolType => nullable ? [dynamic, " == null ? null : ", dynamic] : dynamic,
+            _integerType => nullable ? [dynamic, " == null ? null : ", dynamic] : dynamic,
+            _doubleType => nullable ? [dynamic, " == null ? null : ", dynamic, "?.toDouble()"] : [dynamic, ".toDouble()"],
+            _stringType => nullable ? [dynamic, " == null ? null : ", dynamic] : dynamic,
             arrayType =>
-                this.mapList(this.dartType(arrayType.items), dynamic, this.fromDynamicExpression(arrayType.items, "x")),
+                this.mapList(this.dartType(arrayType.items), nullable, dynamic, this.fromDynamicExpression(arrayType.items, nullable, "x")),
             classType => [this.nameForNamedType(classType), ".", this.fromJson, "(", dynamic, ")"],
             mapType =>
-                this.mapMap(this.dartType(mapType.values), dynamic, this.fromDynamicExpression(mapType.values, "v")),
+                this.mapMap(this.dartType(mapType.values), nullable, dynamic, this.fromDynamicExpression(mapType.values, nullable, "v")),
             enumType => [defined(this._enumValues.get(enumType)), ".map[", dynamic, "]"],
             unionType => {
                 const maybeNullable = nullableFromUnion(unionType);
                 if (maybeNullable === null) {
-                    return dynamic;
+                    return nullable ? [dynamic, " == null ? null : ", dynamic] : dynamic;
                 }
-                return [dynamic, " == null ? null : ", this.fromDynamicExpression(maybeNullable, dynamic)];
+                return [dynamic, " == null ? null : ", this.fromDynamicExpression(maybeNullable, nullable, dynamic)];
             },
             transformedStringType => {
                 switch (transformedStringType.kind) {
                     case "date-time":
                     case "date":
-                        return ["DateTime.parse(", dynamic, ")"];
+                        return [nullable ? "DateTime.tryParse(" : "DateTime.parse(", dynamic, ")"];
                     default:
-                        return dynamic;
+                        return nullable ? [dynamic, " == null ? null : ", dynamic] : dynamic;
                 }
             }
         );
     }
 
-    protected toDynamicExpression(t: Type, ...dynamic: Sourcelike[]): Sourcelike {
+    protected toDynamicExpression(t: Type, nullable: boolean, ...dynamic: Sourcelike[]): Sourcelike {
         return matchType<Sourcelike>(
             t,
-            _anyType => dynamic,
-            _nullType => dynamic,
-            _boolType => dynamic,
-            _integerType => dynamic,
-            _doubleType => dynamic,
-            _stringType => dynamic,
-            arrayType => this.mapList("dynamic", dynamic, this.toDynamicExpression(arrayType.items, "x")),
-            _classType => [dynamic, ".", this.toJson, "()"],
-            mapType => this.mapMap("dynamic", dynamic, this.toDynamicExpression(mapType.values, "v")),
+            _anyType => nullable ? [dynamic, " == null ? null : ", dynamic] : dynamic,
+            _nullType => nullable ? [dynamic, " == null ? null : ", dynamic] : dynamic,
+            _boolType => nullable ? [dynamic, " == null ? null : ", dynamic] : dynamic,
+            _integerType => nullable ? [dynamic, " == null ? null : ", dynamic] : dynamic,
+            _doubleType => nullable ? [dynamic, " == null ? null : ", dynamic] : dynamic,
+            _stringType => nullable ? [dynamic, " == null ? null : ", dynamic] : dynamic,
+            arrayType => this.mapList("dynamic", nullable, dynamic, this.toDynamicExpression(arrayType.items, false, "x")),
+            _classType => nullable ? [dynamic, " == null ? null : ", [dynamic, "?.", this.toJson, "()", " ?? {}"]] : [dynamic, ".", this.toJson, "()"],
+            mapType => this.mapMap("dynamic", nullable, dynamic, this.toDynamicExpression(mapType.values, nullable, "v")),
             enumType => [defined(this._enumValues.get(enumType)), ".reverse[", dynamic, "]"],
             unionType => {
                 const maybeNullable = nullableFromUnion(unionType);
                 if (maybeNullable === null) {
                     return dynamic;
                 }
-                return [dynamic, " == null ? null : ", this.toDynamicExpression(maybeNullable, dynamic)];
+                return [dynamic, " == null ? null : ", this.toDynamicExpression(maybeNullable, nullable, dynamic)];
             },
             transformedStringType => {
                 switch (transformedStringType.kind) {
                     case "date-time":
-                        return [dynamic, ".toIso8601String()"];
+                        return [dynamic,
+                            nullable ? "?" : "",
+                            ".toIso8601String()"];
                     case "date":
                         return [
                             '"${',
                             dynamic,
+                            nullable ? "?" : "",
                             ".year.toString().padLeft(4, '0')",
                             "}-${",
                             dynamic,
+                            nullable ? "?" : "",
                             ".month.toString().padLeft(2, '0')}-${",
                             dynamic,
+                            nullable ? "?" : "",
                             ".day.toString().padLeft(2, '0')}\""
                         ];
                     default:
-                        return dynamic;
+                        return nullable ? [dynamic, " == null ? null : ", dynamic] : dynamic;
                 }
             }
         );
@@ -499,6 +511,12 @@ export class DartRenderer extends ConvenienceRenderer {
 
     protected emitClassDefinition(c: ClassType, className: Name): void {
 
+        if (this._options.useEquatable == true && this._options.finalProperties == false) {
+            throw Error("Cannot use --use-equatable without --final-props option");
+        }
+        const useNullSafe = (p: ClassProperty) => {
+            return p.isOptional && this._options.useNullSafety == true;
+        }
 
         const nullSafePrefix = (p: ClassProperty) => {
             var requiredPrefix = "@required ";
@@ -563,6 +581,23 @@ export class DartRenderer extends ConvenienceRenderer {
                 });
             }
 
+            if (this._options.useEquatable && this._options.finalProperties) {
+                this.ensureBlankLine();
+                this.emitLine("@override");
+                this.emitLine("//only non nullable fields can be used for Equatable classes");
+                this.emitLine("List<Object?> get props =>");
+                this.emitLine("[");
+                this.indent(() => {
+                    this.forEachClassProperty(c, "none", (name, _, _p) => {
+                        if (_p.isOptional == false) {
+                            this.emitLine(name, ",");
+                        }
+                    });
+                });
+                this.emitLine("];");
+
+            }
+
             if (this._options.generateCopyWith) {
                 this.ensureBlankLine();
                 this.emitLine(className, " copyWith({");
@@ -624,7 +659,7 @@ export class DartRenderer extends ConvenienceRenderer {
                     this.emitLine(
                         name,
                         ": ",
-                        this.fromDynamicExpression(property.type, 'json["', stringEscape(jsonName), '"]'),
+                        this.fromDynamicExpression(property.type, useNullSafe(property), 'json["', stringEscape(jsonName), '"]'),
                         ","
                     );
                 });
@@ -640,7 +675,7 @@ export class DartRenderer extends ConvenienceRenderer {
                         '"',
                         stringEscape(jsonName),
                         '": ',
-                        this.toDynamicExpression(property.type, name),
+                        this.toDynamicExpression(property.type, useNullSafe(property), name),
                         ","
                     );
                 });
@@ -742,7 +777,7 @@ export class DartRenderer extends ConvenienceRenderer {
                     " ",
                     decoder,
                     "(String str) => ",
-                    this.fromDynamicExpression(t, "json.decode(str)"),
+                    this.fromDynamicExpression(t, false, "json.decode(str)"),
                     ";"
                 );
 
@@ -754,7 +789,7 @@ export class DartRenderer extends ConvenienceRenderer {
                     "(",
                     this.dartType(t),
                     " data) => json.encode(",
-                    this.toDynamicExpression(t, "data"),
+                    this.toDynamicExpression(t, false, "data"),
                     ");"
                 );
 
