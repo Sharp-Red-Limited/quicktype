@@ -24,7 +24,7 @@ import {
     allLowerWordStyle,
     isPrintable,
     decapitalize,
-    snakeCase
+    pascalCase
 } from "../support/Strings";
 
 import { StringTypeMapping } from "../TypeBuilder";
@@ -37,7 +37,6 @@ import { anyTypeIssueAnnotation, nullTypeIssueAnnotation } from "../Annotation";
 import { defined } from "../support/Support";
 import { RenderContext } from "../Renderer";
 import { arrayIntercalate } from "collection-utils";
-import { throws } from "assert";
 
 export const dartOptions = {
     justTypes: new BooleanOption("just-types", "Types only", false),
@@ -360,7 +359,7 @@ export class DartRenderer extends ConvenienceRenderer {
             const optionNameIsEmpty = this._options.partName.length === 0;
             // FIXME: This should use a `Name`, not `modifySource`
             const name = modifySource(
-                snakeCase,
+                pascalCase,
                 optionNameIsEmpty ? [...this.topLevels.keys()][0] : this._options.partName
             );
             if (this._options.useFreezed) {
@@ -549,9 +548,9 @@ export class DartRenderer extends ConvenienceRenderer {
         }
         this.emitBlock(["class ", className, this._options.useEquatable ? " extends Equatable" : ""], () => {
             if (c.getProperties().size === 0) {
-                this.emitLine(className, "();");
+                this.emitLine(this._options.useEquatable ? "const " : "", className, "();");
             } else {
-                this.emitLine(className, "({");
+                this.emitLine(this._options.useEquatable ? "const " : "", className, "({");
                 this.indent(() => {
                     this.forEachClassProperty(c, "none", (name, _, _p) => {
                         this.emitLine(nullSafePrefix(_p), "this.", name, ",");
@@ -666,19 +665,24 @@ export class DartRenderer extends ConvenienceRenderer {
             this.emitLine("};");
 
             if (this._options.useEquatable && this._options.finalProperties) {
+                const nonOptionalProperties: Name[] = [];
+                this.forEachClassProperty(c, "none", (name, _, p) => {
+                    if (p.isOptional == false) {
+                        nonOptionalProperties.push(name);
+                    }
+                });
                 this.ensureBlankLine();
                 this.emitLine("@override");
                 this.emitLine("//only non nullable fields can be used for Equatable classes");
-                this.emitLine("List<Object?> get props =>");
-                this.emitLine("[");
-                this.indent(() => {
-                    this.forEachClassProperty(c, "none", (name, _, _p) => {
-                        if (_p.isOptional == false) {
-                            this.emitLine(name, ",");
-                        }
+                if (nonOptionalProperties.length === 0) {
+                    this.emitLine("List<Object?> get props => [];");
+                } else {
+                    this.emitLine("List<Object?> get props => [");
+                    this.indent(() => {
+                        nonOptionalProperties.forEach((name) => this.emitLine(name, ","));
                     });
-                });
-                this.emitLine("];");
+                    this.emitLine("];");
+                }
                 this.ensureBlankLine();
                 this.emitLine("@override");
                 this.emitLine("bool get stringify => true;")
