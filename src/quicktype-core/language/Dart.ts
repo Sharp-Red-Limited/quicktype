@@ -759,19 +759,36 @@ export class DartRenderer extends ConvenienceRenderer {
 
     protected emitEnumValues(): void {
         this.ensureBlankLine();
-        this.emitMultiline(`class EnumValues<T> {
-    Map<String, T> map;
-    Map<T, String> reverseMap;
-
-    EnumValues(this.map);
-
-    Map<T, String> get reverse {
-        if (reverseMap == null) {
-            reverseMap = map.map((k, v) => new MapEntry(v, k));
+        if (this._options.useNullSafety == true) {
+            this.emitMultiline(`class EnumValues<T> {
+                Map<String, T> map;
+                Map<T, String>? reverseMap;
+            
+                EnumValues(this.map);
+            
+                Map<T, String> get reverse {
+                    if (reverseMap == null) {
+                        reverseMap = map.map((k, v) => new MapEntry(v, k));
+                    }
+                    return reverseMap!;
+                }
+            }`);
+        } else {
+            this.emitMultiline(`class EnumValues<T> {
+                Map<String, T> map;
+                Map<T, String> reverseMap;
+            
+                EnumValues(this.map);
+            
+                Map<T, String> get reverse {
+                    if (reverseMap == null) {
+                        reverseMap = map.map((k, v) => new MapEntry(v, k));
+                    }
+                    return reverseMap;
+                }
+            }`);
         }
-        return reverseMap;
-    }
-}`);
+
     }
 
     protected emitSourceStructure(): void {
